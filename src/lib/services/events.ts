@@ -446,7 +446,9 @@ export async function prepareLaunchPacket(eventId: string, actor: OperatorIdenti
       imageDataUrl,
       providerStatus: "draft",
       lastPolledAt: null,
-      errorMessage: null,
+      errorMessage: imageDataUrl.startsWith("data:image/svg+xml")
+        ? "Image generation failed — SVG fallback in use. Check OPENAI_API_KEY and OPENAI_IMAGE_MODEL before submitting."
+        : null,
       payloadJson: JSON.stringify({
         ...providerPayload,
         imageDataUrl,

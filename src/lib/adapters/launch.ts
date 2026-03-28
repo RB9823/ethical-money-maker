@@ -47,11 +47,14 @@ export class FlaunchLaunchAdapter implements LaunchAdapter {
   }
 
   async uploadImage(base64Image: string): Promise<LaunchUploadResult> {
+    // Strip the data URL prefix (e.g. "data:image/png;base64,") — Flaunch expects raw base64.
+    const rawBase64 = base64Image.includes(",") ? base64Image.split(",")[1]! : base64Image;
+
     return withRetry(async () => {
       const response = await fetch(`${getBaseUrl()}/api/v1/upload-image`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ base64Image }),
+        body: JSON.stringify({ base64Image: rawBase64 }),
         cache: "no-store",
       });
       return FlaunchUploadSchema.parse(await readJson(response)) as LaunchUploadResult;
