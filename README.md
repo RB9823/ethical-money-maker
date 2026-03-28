@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Ethical Money Maker
 
-## Getting Started
+Next.js operator console for:
 
-First, run the development server:
+- ingesting hot-button narratives from TinyFish
+- confirming events with Dune-style onchain checks
+- drafting Base/fun.xyz launch packets
+- generating approval-gated X drafts
+
+## Stack
+
+- Next.js 16 app router
+- Clerk auth with demo fallback when keys are missing
+- SQLite via `better-sqlite3` + Drizzle schema
+- shadcn/ui for the dashboard surface
+- OpenAI Responses API for launch/post draft generation
+
+## Run
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`.env.local` is already wired locally for:
 
-## Learn More
+- TinyFish API key
+- OpenAI API key
+- X app key / secret / bearer token
 
-To learn more about Next.js, take a look at the following resources:
+You still need these for full outbound production behavior:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `DUNE_API_KEY` plus real saved query IDs
+- `FUNXYZ_API_URL` and `FUNXYZ_API_KEY`
+- `X_ACCESS_TOKEN` and `X_ACCESS_TOKEN_SECRET`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Without those, the app still works end-to-end in operator mode:
 
-## Deploy on Vercel
+- TinyFish sweep can ingest live events
+- OpenAI can generate packet/post drafts
+- launch packets remain draft-only
+- X drafts can be approved internally but not published
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Important routes
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `/` landing page
+- `/dashboard` operator console
+- `/api/jobs/run` TinyFish sweep
+- `/api/events/:id/confirm` Dune confirmation
+- `/api/launches/:eventId/prepare` launch packet draft
+- `/api/posts/:eventId/generate` X draft generation
+
+## Superpowers install
+
+Fetched from `https://raw.githubusercontent.com/obra/superpowers/refs/heads/main/.codex/INSTALL.md`:
+
+```bash
+git clone https://github.com/obra/superpowers.git ~/.codex/superpowers
+ln -s ~/.codex/superpowers ~/.agents/skills/superpowers
+```
+
+Restart Codex after linking.
+
+## Build
+
+```bash
+npm run lint
+npx next build --webpack
+```
+
+Webpack build passes in this environment. Turbopack build panics in the sandbox, so use the Webpack build command for verification here.
