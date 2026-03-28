@@ -6,6 +6,8 @@ import type {
   LaunchSubmitResult,
   LaunchUploadResult,
 } from "@/lib/adapters/contracts";
+import { isRetryableHttpError, withRetry } from "@/lib/adapters/retry";
+import { FlaunchStatusSchema, FlaunchSubmitSchema, FlaunchUploadSchema } from "@/lib/adapters/schemas";
 import type { LaunchNetwork } from "@/lib/types";
 
 function getBaseUrl() {
@@ -45,18 +47,15 @@ export class FlaunchLaunchAdapter implements LaunchAdapter {
   }
 
   async uploadImage(base64Image: string): Promise<LaunchUploadResult> {
-    const response = await fetch(`${getBaseUrl()}/api/v1/upload-image`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        base64Image,
-      }),
-      cache: "no-store",
-    });
-
-    return readJson<LaunchUploadResult>(response);
+    return withRetry(async () => {
+      const response = await fetch(`${getBaseUrl()}/api/v1/upload-image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ base64Image }),
+        cache: "no-store",
+      });
+      return FlaunchUploadSchema.parse(await readJson(response)) as LaunchUploadResult;
+    }, { shouldRetry: isRetryableHttpError });
   }
 
   async submitLaunch(input: LaunchSubmissionPayload): Promise<LaunchSubmitResult> {
@@ -72,26 +71,24 @@ export class FlaunchLaunchAdapter implements LaunchAdapter {
       body.creatorAddress = input.creatorAddress;
     }
 
-    const response = await fetch(`${getBaseUrl()}/api/v1/${getNetwork()}/launch-memecoin`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-      cache: "no-store",
-    });
-
-    return readJson<LaunchSubmitResult>(response);
+    return withRetry(async () => {
+      const response = await fetch(`${getBaseUrl()}/api/v1/${getNetwork()}/launch-memecoin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        cache: "no-store",
+      });
+      return FlaunchSubmitSchema.parse(await readJson(response)) as LaunchSubmitResult;
+    }, { shouldRetry: isRetryableHttpError });
   }
 
   async fetchLaunchStatus(jobId: string): Promise<LaunchStatusResult> {
-    const response = await fetch(`${getBaseUrl()}/api/v1/launch-status/${jobId}`, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-      cache: "no-store",
-    });
-
-    return readJson<LaunchStatusResult>(response);
+    return withRetry(async () => {
+      const response = await fetch(`${getBaseUrl()}/api/v1/launch-status/${jobId}`, {
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+      });
+      return FlaunchStatusSchema.parse(await readJson(response)) as LaunchStatusResult;
+    }, { shouldRetry: isRetryableHttpError });
   }
 }

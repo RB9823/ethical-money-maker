@@ -63,13 +63,21 @@ export function assertEventStatus(input: string): EventStatus {
   throw new Error(`Unsupported event status: ${input}`);
 }
 
+// Source quality weights — Dune (on-chain) is most authoritative, TinyFish (AI news) least.
+const SOURCE_WEIGHTS: Record<string, number> = {
+  Dune: 1.0,
+  BaseMonitor: 0.9,
+  X: 0.8,
+  TinyFish: 0.6,
+};
+
 export function scoreEventConfidence({
   severity,
-  signalCount,
+  signals,
   confirmationBoost = 0,
 }: {
   severity: EventSeverity;
-  signalCount: number;
+  signals: Array<{ source: string; confidence: number; createdAt: string }>;
   confirmationBoost?: number;
 }) {
   const severityBase = {
@@ -79,7 +87,33 @@ export function scoreEventConfidence({
     low: 48,
   }[severity];
 
-  return Math.min(99, severityBase + signalCount * 3 + confirmationBoost);
+  // Weighted signal bonus — each signal contributes based on source quality (capped at 15).
+  let signalBonus = 0;
+  if (signals.length > 0) {
+    const weightedSum = signals.reduce((sum, s) => {
+      const weight = SOURCE_WEIGHTS[s.source] ?? 0.5;
+      return sum + weight;
+    }, 0);
+    signalBonus = Math.min(15, Math.round((weightedSum / signals.length) * signals.length * 2));
+  }
+
+  // Diversity bonus — reward corroboration across multiple source types.
+  const uniqueSources = new Set(signals.map((s) => s.source)).size;
+  const diversityBonus = Math.max(0, uniqueSources - 1) * 4;
+
+  // Recency decay — if all signals are older than 6h, reduce score up to 30%.
+  let recencyMultiplier = 1.0;
+  if (signals.length > 0) {
+    const newestMs = Math.max(...signals.map((s) => new Date(s.createdAt).getTime()));
+    const ageMinutes = (Date.now() - newestMs) / 60000;
+    if (ageMinutes > 360) {
+      // Decays from 1.0 at 6h to 0.7 at 26h
+      recencyMultiplier = Math.max(0.7, 1.0 - (ageMinutes - 360) / 1200);
+    }
+  }
+
+  const raw = severityBase + signalBonus + diversityBonus + confirmationBoost;
+  return Math.min(99, Math.round(raw * recencyMultiplier));
 }
 
 export function evaluateDuneThreshold(metrics: MetricMap) {
@@ -97,25 +131,46 @@ export function evaluateDuneThreshold(metrics: MetricMap) {
   };
 }
 
+// Topic-to-archetype map for meme-native fallback token names.
+// Pick an archetype that fits the narrative vibe, combine with the watchword.
+const topicArchetypes: Record<string, string[]> = {
+  politics: ["BALLOT", "GAVEL", "VETO", "LOBBY", "FILI"],
+  macro: ["PUMP", "HAWK", "FOMO", "BULL", "CRATER"],
+  culture: ["RAGE", "COPE", "SEETHE", "BASED", "DEGEN"],
+  tech: ["CHIP", "COMPUTE", "STACK", "FORK", "JEET"],
+  regulation: ["BAN", "GENSLER", "SEC", "RULE", "COMPLY"],
+  crypto: ["MOON", "RUG", "GAS", "NGMI", "WAGMI"],
+  geopolitics: ["NUKE", "SANCTION", "SIEGE", "PACT", "HAWK"],
+};
+
+function pickArchetype(topic: string): string {
+  const key = topic.toLowerCase();
+  const list = topicArchetypes[key] ?? topicArchetypes.macro!;
+  return list[Math.floor(Math.random() * list.length)]!;
+}
+
+function watchwordToSymbol(watchword: string): string {
+  // Take the first meaningful word from the watchword, uppercase, max 5 chars.
+  const word = watchword
+    .replace(/[^a-zA-Z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)[0] ?? "HBX";
+  return word.toUpperCase().slice(0, 5);
+}
+
 export function buildLaunchPacketDraft(input: {
   title: string;
   chain: string;
   theme: string;
   watchword: string;
+  topic?: string;
 }) {
-  const base = input.title
-    .replace(/[^a-zA-Z0-9 ]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 3);
-  const symbol = base
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 5) || "HBX";
+  const archetype = pickArchetype(input.topic ?? "macro");
+  const symbol = watchwordToSymbol(input.watchword);
+  const tokenName = `${archetype} ${input.watchword.split(/\s+/)[0]?.toUpperCase() ?? "SIGNAL"}`;
 
   return {
-    tokenName: `${base.join(" ") || "Hot Button"} Signal`,
+    tokenName,
     tokenSymbol: symbol,
     thesis: `${input.theme} rotation around ${input.watchword} on ${input.chain}.`,
   };

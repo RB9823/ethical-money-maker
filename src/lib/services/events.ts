@@ -2,10 +2,11 @@ import { randomUUID } from "node:crypto";
 import { desc, eq } from "drizzle-orm";
 
 import { DuneAdapter } from "@/lib/adapters/dune";
-import { FunLaunchAdapter } from "@/lib/adapters/launch";
-import { generateDraftPackage } from "@/lib/adapters/openai";
+import { FlaunchLaunchAdapter } from "@/lib/adapters/launch";
+import { generateDraftPackage, generateLaunchImage } from "@/lib/adapters/openai";
 import { XSocialAdapter } from "@/lib/adapters/social";
 import { TinyFishAdapter } from "@/lib/adapters/tinyfish";
+import { pullXSignals } from "@/lib/adapters/x-listener";
 import { db } from "@/lib/db/client";
 import {
   approvals,
@@ -20,11 +21,46 @@ import {
 } from "@/lib/db/schema";
 import type { OperatorIdentity, WorkflowTransitionInput } from "@/lib/types";
 import { scoreEventConfidence, canTransitionEvent, buildLaunchPacketDraft } from "@/lib/workflow";
+import { evaluateLaunchTiming } from "@/lib/services/timing";
 
 const tinyFish = new TinyFishAdapter();
 const dune = new DuneAdapter();
-const launch = new FunLaunchAdapter();
+const launch = new FlaunchLaunchAdapter();
 const social = new XSocialAdapter();
+
+function getLaunchNetwork() {
+  return process.env.FLAUNCH_NETWORK === "base" ? "base" : "base-sepolia";
+}
+
+function getCreatorAddress() {
+  return process.env.FLAUNCH_CREATOR_ADDRESS?.trim() || undefined;
+}
+
+function toBase64Payload(dataUrl: string) {
+  return dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
+}
+
+function mapFlaunchStatus(input: string | null | undefined) {
+  const normalized = (input || "").toLowerCase();
+
+  if (normalized.includes("queue") || normalized.includes("pending")) {
+    return "queued";
+  }
+
+  if (normalized.includes("active") || normalized.includes("launching")) {
+    return "active";
+  }
+
+  if (normalized.includes("complete") || normalized.includes("success")) {
+    return "completed";
+  }
+
+  if (normalized.includes("fail") || normalized.includes("error")) {
+    return "failed";
+  }
+
+  return "queued";
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -268,11 +304,15 @@ export async function confirmEvent(eventId: string, actor: OperatorIdentity) {
       status: verdictStatus,
       confidence: scoreEventConfidence({
         severity: event.severity as "critical" | "high" | "medium" | "low",
-        signalCount: db
-          .select()
+        signals: db
+          .select({
+            source: eventSignals.source,
+            confidence: eventSignals.confidence,
+            createdAt: eventSignals.createdAt,
+          })
           .from(eventSignals)
           .where(eq(eventSignals.eventId, event.id))
-          .all().length,
+          .all(),
         confirmationBoost: payload.verdict === "pass" ? 8 : 0,
       }),
       updatedAt: nowIso(),
@@ -304,11 +344,23 @@ export async function prepareLaunchPacket(eventId: string, actor: OperatorIdenti
     throw new Error("Event not found.");
   }
 
+  const signals = db
+    .select({ createdAt: eventSignals.createdAt, source: eventSignals.source })
+    .from(eventSignals)
+    .where(eq(eventSignals.eventId, eventId))
+    .all();
+
+  const timing = evaluateLaunchTiming({
+    signals,
+    eventCreatedAt: event.createdAt,
+  });
+
   const draft = buildLaunchPacketDraft({
     title: event.title,
     chain: event.chain,
     theme: event.topic,
     watchword: event.watchword,
+    topic: event.topic,
   });
   const aiDraft = await generateDraftPackage({
     title: event.title,
@@ -317,13 +369,32 @@ export async function prepareLaunchPacket(eventId: string, actor: OperatorIdenti
     chain: event.chain,
     confidence: event.confidence,
   });
+  const tokenName = aiDraft?.tokenName || draft.tokenName;
+  const tokenSymbol = aiDraft?.tokenSymbol || draft.tokenSymbol;
+  const thesis = aiDraft?.thesis || draft.thesis;
+  const description =
+    aiDraft?.description || `${event.summary} Hyde operator launch packet on Base Sepolia.`;
+  const imagePrompt =
+    aiDraft?.imagePrompt ||
+    `Square memecoin artwork for ${tokenName}. Bold, cinematic, teal and amber color contrast, no text.`;
+  const imageDataUrl = await generateLaunchImage({
+    prompt: imagePrompt,
+    tokenSymbol,
+  });
+  const network = getLaunchNetwork();
+  const creatorAddress = getCreatorAddress();
 
   const providerPayload = await launch.prepareLaunch({
-    tokenName: aiDraft?.tokenName || draft.tokenName,
-    tokenSymbol: aiDraft?.tokenSymbol || draft.tokenSymbol,
-    thesis: aiDraft?.thesis || draft.thesis,
+    tokenName,
+    tokenSymbol,
+    thesis,
+    description,
     chain: event.chain,
     watchword: event.watchword,
+    network,
+    creatorAddress,
+    sniperProtection: true,
+    imagePrompt,
   });
 
   const packetId = randomUUID();
@@ -333,12 +404,28 @@ export async function prepareLaunchPacket(eventId: string, actor: OperatorIdenti
       id: packetId,
       eventId: event.id,
       chain: event.chain,
-      venue: "fun.xyz",
+      network,
+      venue: "flaunch",
       status: "draft",
-      tokenName: aiDraft?.tokenName || draft.tokenName,
-      tokenSymbol: aiDraft?.tokenSymbol || draft.tokenSymbol,
-      thesis: aiDraft?.thesis || draft.thesis,
-      payloadJson: JSON.stringify(providerPayload),
+      tokenName,
+      tokenSymbol,
+      thesis,
+      description,
+      creatorAddress,
+      jobId: null,
+      transactionHash: null,
+      collectionTokenAddress: null,
+      tokenUri: null,
+      imageIpfs: null,
+      imagePrompt,
+      imageDataUrl,
+      providerStatus: "draft",
+      lastPolledAt: null,
+      errorMessage: null,
+      payloadJson: JSON.stringify({
+        ...providerPayload,
+        imageDataUrl,
+      }),
       preparedBy: actor.actorName,
       preparedAt: nowIso(),
     })
@@ -347,6 +434,7 @@ export async function prepareLaunchPacket(eventId: string, actor: OperatorIdenti
   db.update(trackedEvents)
     .set({
       status: event.status === "confirmed" ? "approved" : event.status,
+      operatorNote: `[${timing.recommendation.toUpperCase()}] ${timing.reason}`,
       updatedAt: nowIso(),
     })
     .where(eq(trackedEvents.id, event.id))
@@ -358,13 +446,152 @@ export async function prepareLaunchPacket(eventId: string, actor: OperatorIdenti
     action: "prepare-launch",
     outcome: "recorded",
     actor,
-    note: "Prepared a draft-only launch packet.",
+    note: `Prepared a Flaunch launch packet. Timing: ${timing.recommendation} — ${timing.reason}`,
   });
 
-  logExecution("launch", "success", "Prepared a launch packet draft.", {
+  logExecution("launch", "success", "Prepared a Hyde launch packet draft.", {
     eventId: event.id,
     packetId,
   });
+
+  return db.select().from(launchPackets).where(eq(launchPackets.id, packetId)).get();
+}
+
+export async function submitLaunchPacket(packetId: string, actor: OperatorIdentity) {
+  const packet = db.select().from(launchPackets).where(eq(launchPackets.id, packetId)).get();
+
+  if (!packet) {
+    throw new Error("Launch packet not found.");
+  }
+
+  if (!packet.imageDataUrl) {
+    throw new Error("Launch packet has no generated image.");
+  }
+
+  db.update(launchPackets)
+    .set({
+      status: "submitting",
+      providerStatus: "submitting",
+      errorMessage: null,
+      lastPolledAt: nowIso(),
+    })
+    .where(eq(launchPackets.id, packetId))
+    .run();
+
+  const imageUpload = await launch.uploadImage(toBase64Payload(packet.imageDataUrl));
+
+  const submission = await launch.submitLaunch({
+    tokenName: packet.tokenName,
+    tokenSymbol: packet.tokenSymbol,
+    thesis: packet.thesis,
+    description: packet.description,
+    chain: packet.chain,
+    watchword: packet.imagePrompt || packet.tokenSymbol,
+    network: (packet.network as "base" | "base-sepolia") || getLaunchNetwork(),
+    creatorAddress: packet.creatorAddress || getCreatorAddress(),
+    sniperProtection: true,
+    imageIpfs: imageUpload.ipfsHash,
+    imagePrompt: packet.imagePrompt || undefined,
+  });
+
+  db.update(launchPackets)
+    .set({
+      status: mapFlaunchStatus(submission.message),
+      providerStatus: submission.message,
+      jobId: submission.jobId,
+      tokenUri: imageUpload.tokenURI,
+      imageIpfs: imageUpload.ipfsHash,
+      lastPolledAt: nowIso(),
+      payloadJson: JSON.stringify({
+        ...parseJson<Record<string, unknown>>(packet.payloadJson, {}),
+        imageUpload,
+        submission,
+      }),
+    })
+    .where(eq(launchPackets.id, packetId))
+    .run();
+
+  recordApproval({
+    entityType: "launch_packet",
+    entityId: packetId,
+    action: "submit-launch",
+    outcome: "approved",
+    actor,
+    note: `Submitted launch packet to Flaunch. jobId=${submission.jobId}`,
+  });
+
+  logExecution("launch", "success", "Submitted Hyde launch packet to Flaunch.", {
+    packetId,
+    jobId: submission.jobId,
+  });
+
+  return db.select().from(launchPackets).where(eq(launchPackets.id, packetId)).get();
+}
+
+export async function syncLaunchPacket(packetId: string, actor?: OperatorIdentity) {
+  const packet = db.select().from(launchPackets).where(eq(launchPackets.id, packetId)).get();
+
+  if (!packet) {
+    throw new Error("Launch packet not found.");
+  }
+
+  if (!packet.jobId) {
+    throw new Error("Launch packet has no Flaunch job ID.");
+  }
+
+  const status = await launch.fetchLaunchStatus(packet.jobId);
+  const mappedStatus = mapFlaunchStatus(status.state);
+
+  db.update(launchPackets)
+    .set({
+      status: mappedStatus,
+      providerStatus: status.state,
+      transactionHash: status.transactionHash || packet.transactionHash,
+      collectionTokenAddress:
+        status.collectionToken?.address || packet.collectionTokenAddress,
+      tokenUri: status.collectionToken?.tokenURI || packet.tokenUri,
+      imageIpfs: status.collectionToken?.imageIpfs || packet.imageIpfs,
+      errorMessage: status.error || null,
+      lastPolledAt: nowIso(),
+      payloadJson: JSON.stringify({
+        ...parseJson<Record<string, unknown>>(packet.payloadJson, {}),
+        status,
+      }),
+    })
+    .where(eq(launchPackets.id, packetId))
+    .run();
+
+  if (mappedStatus === "completed") {
+    db.update(trackedEvents)
+      .set({
+        status: "dispatched",
+        updatedAt: nowIso(),
+      })
+      .where(eq(trackedEvents.id, packet.eventId))
+      .run();
+  }
+
+  if (actor) {
+    recordApproval({
+      entityType: "launch_packet",
+      entityId: packetId,
+      action: "sync-launch",
+      outcome: mappedStatus === "failed" ? "rejected" : "recorded",
+      actor,
+      note: `Flaunch status=${status.state}`,
+    });
+  }
+
+  logExecution(
+    "launch",
+    mappedStatus === "failed" ? "failed" : "success",
+    "Synced Hyde launch packet with Flaunch status.",
+    {
+      packetId,
+      jobId: packet.jobId,
+      providerStatus: status.state,
+    },
+  );
 
   return db.select().from(launchPackets).where(eq(launchPackets.id, packetId)).get();
 }
@@ -417,18 +644,31 @@ export async function generatePostDraftForEvent(eventId: string, actor: Operator
   return db.select().from(postDrafts).where(eq(postDrafts.id, postId)).get();
 }
 
-export function approvePostDraft(postId: string, actor: OperatorIdentity) {
+export async function approvePostDraft(postId: string, actor: OperatorIdentity) {
   const draft = db.select().from(postDrafts).where(eq(postDrafts.id, postId)).get();
 
   if (!draft) {
     throw new Error("Draft not found.");
   }
 
+  // Attempt to publish to X — if credentials are configured
+  const hashtags = draft.hashtags ? draft.hashtags.split(" ") : [];
+  let publishedStatus: "approved" | "published" | "failed" = "approved";
+  let providerResponse: Record<string, unknown> = { mode: "approved" };
+
+  const publishResult = await social.publishPost(draft.content, hashtags).catch(() => null);
+
+  if (publishResult) {
+    publishedStatus = "published";
+    providerResponse = { mode: "published", tweetId: publishResult.tweetId, url: publishResult.url };
+  }
+
   db.update(postDrafts)
     .set({
-      status: "approved",
+      status: publishedStatus,
       approvedBy: actor.actorName,
       approvedAt: nowIso(),
+      providerResponse: JSON.stringify(providerResponse),
     })
     .where(eq(postDrafts.id, postId))
     .run();
@@ -494,7 +734,7 @@ export async function runHotButtonSweep(actor: OperatorIdentity) {
         status: "new",
         confidence: scoreEventConfidence({
           severity: "medium",
-          signalCount: 1,
+          signals: [],
         }),
         watchword: (candidate.watchword || candidate.topic).replace(/\s+/g, "-"),
         marketBias: "breakout",
@@ -522,6 +762,40 @@ export async function runHotButtonSweep(actor: OperatorIdentity) {
       .run();
 
     inserted.push(eventId);
+  }
+
+  // Enrich all active events (new + watch) with X/Twitter engagement signals.
+  const activeWatchwords = db
+    .select({ id: trackedEvents.id, watchword: trackedEvents.watchword })
+    .from(trackedEvents)
+    .all()
+    .filter((e) => e.watchword)
+    .map((e) => ({ id: e.id, watchword: e.watchword.replace(/-/g, " ") }));
+
+  if (activeWatchwords.length > 0) {
+    const xSignals = await pullXSignals(activeWatchwords.map((e) => e.watchword));
+
+    for (const signal of xSignals) {
+      const event = activeWatchwords.find(
+        (e) => e.watchword.toLowerCase() === signal.watchword.toLowerCase(),
+      );
+      if (!event) continue;
+
+      db.insert(eventSignals)
+        .values({
+          id: randomUUID(),
+          eventId: event.id,
+          kind: "social",
+          source: "X",
+          label: "X engagement velocity",
+          value: String(signal.engagementVelocity),
+          direction: signal.engagementVelocity > 5 ? "up" : "flat",
+          confidence: Math.min(90, Math.round(signal.engagementVelocity * 3 + 40)),
+          note: `${signal.tweetCount} tweets sampled, top engagement: ${signal.topEngagement}`,
+          createdAt: nowIso(),
+        })
+        .run();
+    }
   }
 
   logExecution("tinyfish", "success", "Completed a hot-button sweep.", {

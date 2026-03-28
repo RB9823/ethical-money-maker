@@ -1,3 +1,6 @@
+import { isRetryableHttpError, withRetry } from "@/lib/adapters/retry";
+import { OpenAIDraftPackageSchema } from "@/lib/adapters/schemas";
+
 function extractJsonObject(input: string) {
   const start = input.indexOf("{");
   const end = input.lastIndexOf("}");
@@ -36,29 +39,31 @@ async function callOpenAI(prompt: string) {
     return null;
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
+  return withRetry(
+    async () => {
+      const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+          input: prompt,
+          temperature: 0.7,
+          max_output_tokens: 900,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`OpenAI request failed with ${response.status}`);
+      }
+
+      const payload = (await response.json()) as { output_text?: string };
+      return payload.output_text ?? "";
     },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-      input: prompt,
-      temperature: 0.7,
-      max_output_tokens: 900,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenAI request failed with ${response.status}`);
-  }
-
-  const payload = (await response.json()) as {
-    output_text?: string;
-  };
-
-  return payload.output_text ?? "";
+    { shouldRetry: isRetryableHttpError },
+  );
 }
 
 export async function generateDraftPackage(input: {
@@ -69,7 +74,8 @@ export async function generateDraftPackage(input: {
   confidence: number;
 }) {
   const output = await callOpenAI(`
-You are drafting internal launch metadata and a social draft for an operator console.
+You are drafting launch metadata for a meme coin on Base. The token must feel born from the narrative — culturally sharp, memetically resonant, not corporate.
+
 Return strict JSON only using this shape:
 {
   "tokenName": string,
@@ -81,35 +87,40 @@ Return strict JSON only using this shape:
   "hashtags": string[]
 }
 
-Context:
+Event context:
 - title: ${input.title}
 - summary: ${input.summary}
 - watchword: ${input.watchword}
 - chain: ${input.chain}
 - confidence: ${input.confidence}
 
-Constraints:
-- tokenSymbol must be 3 to 5 uppercase letters.
-- thesis must be one sentence.
-- description must be 1 to 2 sentences and suitable as token metadata.
-- imagePrompt must describe one square token image with a strong memetic identity and no text.
-- postDraft must read like a desk update, not a guarantee or trading promise.
-- hashtags array length 2 to 4.
+Token naming rules:
+- tokenName: catchy, 1-3 words, meme-native energy (think $PEPE, $DOGE, $TRUMP vibes — not "Signal" or "Protocol"). Use the watchword as the core meme hook.
+- tokenSymbol: one memorable word or abbreviation, 3-5 uppercase letters, something people would type into a DEX search.
+
+Few-shot examples of good vs bad:
+  BAD: "Campaign Finance Signal" / "CFS"
+  GOOD: "Ballot Liquidity" / "BALLOT"
+
+  BAD: "AI Export Sanction Event" / "AISE"
+  GOOD: "Compute Panic" / "CMPNK"
+
+  BAD: "Hot Button Event Token" / "HBET"
+  GOOD: "GAVEL DROP" / "GAVEL"
+
+Other constraints:
+- thesis: one sentence on why this narrative is a market-moving catalyst.
+- description: 1-2 sentences suitable as on-chain token metadata.
+- imagePrompt: describe a square token image. Make it topic-aware — political/election events get satirical or patriotic imagery, tech/AI events get futuristic imagery, culture war events get bold abstract imagery. Style: pop art, vaporwave, or bold illustration. No text, no watermarks, no realistic human faces, no brand logos.
+- postDraft: reads like an internal desk update. No financial promises.
+- hashtags: 2-4 items.
   `);
 
   if (!output) {
     return null;
   }
 
-  return extractJsonObject(output) as {
-    tokenName: string;
-    tokenSymbol: string;
-    thesis: string;
-    description: string;
-    imagePrompt: string;
-    postDraft: string;
-    hashtags: string[];
-  };
+  return OpenAIDraftPackageSchema.parse(extractJsonObject(output));
 }
 
 export async function generateLaunchImage(input: {

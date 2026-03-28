@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Activity, ArrowUpRight, DatabaseZap, Flame, RadioTower, ScrollText } from "lucide-react";
 
@@ -45,6 +46,7 @@ export function DashboardShell({
     snapshot;
 
   const latestDraft = selectedDrafts[0];
+  const latestPacket = selectedPackets[0];
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(19,120,134,0.18),_transparent_24%),radial-gradient(circle_at_top_right,_rgba(213,117,43,0.18),_transparent_22%),linear-gradient(180deg,_#fcfbf7,_#f4efe7)]">
@@ -72,7 +74,7 @@ export function DashboardShell({
                   SQLite-backed operator history
                 </div>
                 <div className="rounded-full border border-white/12 bg-white/10 px-4 py-2">
-                  Base-first launch packet drafting
+                  Hyde x Flaunch on Base Sepolia
                 </div>
               </div>
             </CardContent>
@@ -93,8 +95,8 @@ export function DashboardShell({
               />
               <IntegrationBadge label="Dune API" enabled={Boolean(process.env.DUNE_API_KEY)} />
               <IntegrationBadge
-                label="fun.xyz Launch Adapter"
-                enabled={Boolean(process.env.FUNXYZ_API_URL && process.env.FUNXYZ_API_KEY)}
+                label="Flaunch Launch Surface"
+                enabled={true}
               />
             </CardContent>
           </Card>
@@ -188,6 +190,8 @@ export function DashboardShell({
                     eventId={selectedEvent.id}
                     status={selectedEvent.status as never}
                     latestDraftId={latestDraft?.id}
+                    latestPacketId={latestPacket?.id}
+                    latestPacketStatus={latestPacket?.status}
                   />
                 </CardHeader>
                 <CardContent>
@@ -291,16 +295,36 @@ export function DashboardShell({
                           {selectedPackets.length ? (
                             selectedPackets.map((packet) => (
                               <div key={packet.id} className="rounded-2xl border border-zinc-200/80 px-4 py-4">
+                                {packet.imageDataUrl ? (
+                                  <Image
+                                    src={packet.imageDataUrl}
+                                    alt={`${packet.tokenName} launch art`}
+                                    width={1024}
+                                    height={1024}
+                                    unoptimized
+                                    className="mb-4 aspect-square w-full rounded-2xl object-cover"
+                                  />
+                                ) : null}
                                 <div className="flex items-center justify-between gap-3">
                                   <div>
                                     <p className="font-semibold">{packet.tokenName}</p>
-                                    <p className="text-sm text-muted-foreground">{packet.tokenSymbol}</p>
+                                    <p className="text-sm text-muted-foreground">
+                                      {packet.tokenSymbol} · {packet.network}
+                                    </p>
                                   </div>
                                   <Badge variant="secondary" className="rounded-full">
                                     {packet.status}
                                   </Badge>
                                 </div>
                                 <p className="mt-3 text-sm leading-6 text-muted-foreground">{packet.thesis}</p>
+                                <div className="mt-3 space-y-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                                  <p>Provider: {packet.providerStatus || "draft"}</p>
+                                  {packet.jobId ? <p>Job: {packet.jobId}</p> : null}
+                                  {packet.collectionTokenAddress ? (
+                                    <p>Token: {packet.collectionTokenAddress}</p>
+                                  ) : null}
+                                  {packet.transactionHash ? <p>Tx: {packet.transactionHash}</p> : null}
+                                </div>
                               </div>
                             ))
                           ) : (

@@ -27,8 +27,8 @@ export default async function Home() {
               <Waves className="size-4" />
             </div>
             <div>
-              <p className="font-semibold tracking-tight">Ethical Money Maker</p>
-              <p className="text-sm text-muted-foreground">Operator-first signal console</p>
+              <p className="font-semibold tracking-tight">Hyde</p>
+              <p className="text-sm text-muted-foreground">Hyde operator console</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -54,7 +54,7 @@ export default async function Home() {
               </h1>
               <p className="max-w-2xl text-lg leading-8 text-white/78">
                 The app is built for a small internal team: narrative ingest, Dune confirmation,
-                launch packet drafting, and X post review all live in one SQLite-backed Next.js console.
+                Flaunch launch ops, and X post review all live in one SQLite-backed Next.js console.
               </p>
             </div>
             <div className="mt-8 flex flex-wrap gap-3">
@@ -115,7 +115,7 @@ export default async function Home() {
               <CardTitle>Base-First Outbound Surface</CardTitle>
             </CardHeader>
             <CardContent className="text-sm leading-7 text-muted-foreground">
-              Launch packets are drafted for Base and fun.xyz, while X output remains human-approved.
+              Hyde prepares and submits Flaunch launches on Base Sepolia, while X output remains human-approved.
             </CardContent>
           </Card>
         </section>

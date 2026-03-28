@@ -156,4 +156,12 @@ export function bootstrapDatabase(sqlite: Database.Database) {
   ensureColumn(sqlite, "launch_packets", "last_polled_at", "TEXT");
   ensureColumn(sqlite, "launch_packets", "error_message", "TEXT");
   sqlite.exec("UPDATE launch_packets SET venue = 'flaunch' WHERE venue = 'fun.xyz'");
+
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_event_signals_event_id ON event_signals(event_id)`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_dune_query_runs_event_id ON dune_query_runs(event_id)`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_launch_packets_event_id ON launch_packets(event_id)`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_post_drafts_event_id ON post_drafts(event_id)`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_tracked_events_status ON tracked_events(status)`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_approvals_entity_id ON approvals(entity_id)`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_execution_logs_scope ON execution_logs(scope)`);
 }

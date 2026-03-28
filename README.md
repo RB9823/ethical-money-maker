@@ -1,10 +1,10 @@
-# Ethical Money Maker
+# Hyde
 
 Next.js operator console for:
 
 - ingesting hot-button narratives from TinyFish
 - confirming events with Dune-style onchain checks
-- drafting Base/fun.xyz launch packets
+- drafting and submitting Base Flaunch launches
 - generating approval-gated X drafts
 
 ## Stack
@@ -35,14 +35,14 @@ Open `http://localhost:3000`.
 You still need these for full outbound production behavior:
 
 - `DUNE_API_KEY` plus real saved query IDs
-- `FUNXYZ_API_URL` and `FUNXYZ_API_KEY`
+- `FLAUNCH_CREATOR_ADDRESS` if you want creator attribution on launches
 - `X_ACCESS_TOKEN` and `X_ACCESS_TOKEN_SECRET`
 
 Without those, the app still works end-to-end in operator mode:
 
 - TinyFish sweep can ingest live events
 - OpenAI can generate packet/post drafts
-- launch packets remain draft-only
+- launch packets can be prepared locally and submitted to Flaunch
 - X drafts can be approved internally but not published
 
 ## Important routes
@@ -52,6 +52,8 @@ Without those, the app still works end-to-end in operator mode:
 - `/api/jobs/run` TinyFish sweep
 - `/api/events/:id/confirm` Dune confirmation
 - `/api/launches/:eventId/prepare` launch packet draft
+- `/api/launches/:packetId/submit` submit launch to Flaunch
+- `/api/launches/:packetId/sync` refresh Flaunch launch status
 - `/api/posts/:eventId/generate` X draft generation
 
 ## Superpowers install

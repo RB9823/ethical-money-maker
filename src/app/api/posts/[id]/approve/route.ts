@@ -10,7 +10,7 @@ export async function POST(_request: Request, context: RouteContext) {
   try {
     const { id } = await context.params;
     const actor = await requireOperator();
-    const post = approvePostDraft(id, actor);
+    const post = await approvePostDraft(id, actor);
 
     return ok({ post });
   } catch (error) {

@@ -5,6 +5,6 @@ export default defineConfig({
   schema: "./src/lib/db/schema.ts",
   dialect: "sqlite",
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? "./data/ethical-money-maker.db",
+    url: process.env.DATABASE_URL ?? "./data/hyde.db",
   },
 });

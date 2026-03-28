@@ -8,14 +8,14 @@ import { seedDatabase } from "@/lib/db/seed";
 import * as schema from "@/lib/db/schema";
 
 const globalForDb = globalThis as typeof globalThis & {
-  __ethicalMoneyMakerDb?: ReturnType<typeof drizzle<typeof schema>>;
+  __hydeDb?: ReturnType<typeof drizzle<typeof schema>>;
 };
 
 function resolveDatabasePath() {
   const configured = process.env.DATABASE_URL?.trim();
 
   if (!configured) {
-    return path.join(process.cwd(), "data", "ethical-money-maker.db");
+    return path.join(process.cwd(), "data", "hyde.db");
   }
 
   if (configured.startsWith("file:")) {
@@ -35,6 +35,7 @@ function createDatabase() {
 
   const sqlite = new Database(databasePath);
   sqlite.pragma("journal_mode = WAL");
+  sqlite.pragma("busy_timeout = 5000");
 
   bootstrapDatabase(sqlite);
   seedDatabase(sqlite);
@@ -42,8 +43,21 @@ function createDatabase() {
   return drizzle(sqlite, { schema });
 }
 
-export const db = globalForDb.__ethicalMoneyMakerDb ?? createDatabase();
+function getOrCreateDb() {
+  if (!globalForDb.__hydeDb) {
+    globalForDb.__hydeDb = createDatabase();
+  }
 
-if (process.env.NODE_ENV !== "production") {
-  globalForDb.__ethicalMoneyMakerDb = db;
+  return globalForDb.__hydeDb;
 }
+
+type DrizzleDatabase = ReturnType<typeof drizzle<typeof schema>>;
+
+export const db = new Proxy({} as DrizzleDatabase, {
+  get(_target, property, receiver) {
+    const instance = getOrCreateDb();
+    const value = Reflect.get(instance, property, receiver);
+
+    return typeof value === "function" ? value.bind(instance) : value;
+  },
+});

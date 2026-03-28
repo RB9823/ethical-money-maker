@@ -2,7 +2,16 @@
 
 import { startTransition, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LoaderCircle, Radar, ShieldCheck, Sparkles, Stamp, WandSparkles } from "lucide-react";
+import {
+  LoaderCircle,
+  Radar,
+  RefreshCcw,
+  Rocket,
+  ShieldCheck,
+  Sparkles,
+  Stamp,
+  WandSparkles,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { EventStatus } from "@/lib/types";
@@ -18,10 +27,14 @@ export function EventActions({
   eventId,
   status,
   latestDraftId,
+  latestPacketId,
+  latestPacketStatus,
 }: {
   eventId: string;
   status: EventStatus;
   latestDraftId?: string;
+  latestPacketId?: string;
+  latestPacketStatus?: string;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -61,8 +74,26 @@ export function EventActions({
     {
       label: "Prepare Packet",
       icon: WandSparkles,
-      url: `/api/launches/${eventId}/prepare`,
+      url: `/api/events/${eventId}/launch/prepare`,
     },
+    ...(latestPacketId && (latestPacketStatus === "draft" || latestPacketStatus === "failed")
+      ? [
+          {
+            label: "Submit To Flaunch",
+            icon: Rocket,
+            url: `/api/launches/${latestPacketId}/submit`,
+          },
+        ]
+      : []),
+    ...(latestPacketId && latestPacketStatus && latestPacketStatus !== "draft"
+      ? [
+          {
+            label: "Refresh Launch",
+            icon: RefreshCcw,
+            url: `/api/launches/${latestPacketId}/sync`,
+          },
+        ]
+      : []),
     {
       label: "Draft X Post",
       icon: Sparkles,
@@ -118,7 +149,11 @@ export function EventActions({
             <Button
               key={action.label}
               type="button"
-              variant={action.label === "Prepare Packet" ? "default" : "outline"}
+              variant={
+                action.label === "Prepare Packet" || action.label === "Submit To Flaunch"
+                  ? "default"
+                  : "outline"
+              }
               className="rounded-full"
               disabled={Boolean(busy)}
               onClick={() => invoke(action)}

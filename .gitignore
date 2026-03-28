@@ -23,6 +23,7 @@
 # misc
 .DS_Store
 *.pem
+api_keys.rtf
 
 # debug
 npm-debug.log*

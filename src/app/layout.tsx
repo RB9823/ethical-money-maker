@@ -5,8 +5,8 @@ import { clerkEnabled } from "@/lib/server-auth";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Ethical Money Maker",
-  description: "Hot-button event tracking console with Dune confirmation and operator-gated outbound workflows.",
+  title: "Hyde",
+  description: "Hyde tracks hot-button events, confirms them onchain, and submits operator-reviewed launches to Flaunch.",
 };
 
 export default function RootLayout({
