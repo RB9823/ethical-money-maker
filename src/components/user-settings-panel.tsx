@@ -2,12 +2,12 @@
 
 import { startTransition, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle, Link2Off, Save, Wallet, X } from "lucide-react";
+import { CheckCircle, Link2Off, Save, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
-const insetClass = "rounded-[22px] border border-zinc-200/80 bg-zinc-50/88";
-const monoLabelClass = "text-[11px] uppercase tracking-[0.22em] text-zinc-500";
+const rowClass = "rounded-[20px] border border-zinc-200/80 bg-zinc-50/80 px-4 py-4";
+const labelClass = "text-xs font-medium text-zinc-500";
 
 function CreatorAddressForm({ current }: { current: string | null }) {
   const router = useRouter();
@@ -61,7 +61,6 @@ function CreatorAddressForm({ current }: { current: string | null }) {
       }
 
       setAddress("");
-      setSaved(false);
       startTransition(() => router.refresh());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error.");
@@ -71,16 +70,12 @@ function CreatorAddressForm({ current }: { current: string | null }) {
   }
 
   return (
-    <div className={`${insetClass} space-y-3 px-4 py-4`}>
-      <div className="flex items-center gap-2">
-        <Wallet className="size-4 text-zinc-500" />
-        <p className={monoLabelClass}>Creator wallet (Base)</p>
-      </div>
-      <p className="text-xs leading-5 text-zinc-500">
-        Your Base wallet address. Revenue from your memecoin launches on Flaunch will route here.
-        Must be a valid EVM address (0x…).
+    <div className={rowClass}>
+      <p className={labelClass}>Base wallet address</p>
+      <p className="mt-0.5 text-xs text-zinc-400">
+        Revenue from Flaunch launches routes here. Must be a valid EVM address (0x…).
       </p>
-      <div className="flex gap-2">
+      <div className="mt-3 flex gap-2">
         <input
           type="text"
           value={address}
@@ -100,18 +95,12 @@ function CreatorAddressForm({ current }: { current: string | null }) {
           {saved ? "Saved" : "Save"}
         </Button>
         {address ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="rounded-full"
-            disabled={busy}
-            onClick={clear}
-          >
+          <Button size="sm" variant="outline" className="rounded-full" disabled={busy} onClick={clear}>
             <X className="size-3" />
           </Button>
         ) : null}
       </div>
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
     </div>
   );
 }
@@ -151,43 +140,33 @@ function XConnectionSection({
   }
 
   return (
-    <div className={`${insetClass} space-y-3 px-4 py-4`}>
-      <div className="flex items-center gap-2">
-        <X className="size-4 text-zinc-500" />
-        <p className={monoLabelClass}>X account</p>
-      </div>
+    <div className={rowClass}>
+      <p className={labelClass}>X account</p>
       {connected ? (
-        <>
+        <div className="mt-2 flex items-center justify-between gap-3">
           <p className="text-sm text-zinc-700">
-            Connected{handle ? ` as @${handle}` : ""}. Approved post drafts will be published from
-            this account.
+            Connected{handle ? ` as @${handle}` : ""}
           </p>
           <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="rounded-full"
-              disabled={busy}
-              onClick={disconnect}
-            >
+            <Button size="sm" variant="outline" className="rounded-full" disabled={busy} onClick={disconnect}>
               <Link2Off className="size-3" />
               Disconnect
             </Button>
             {error ? <p className="text-xs text-destructive">{error}</p> : null}
           </div>
-        </>
+        </div>
       ) : (
-        <>
-          <p className="text-xs leading-5 text-zinc-500">
-            Connect your X account to publish approved post drafts directly from Hyde.
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <p className="text-xs text-zinc-400">
+            Connect to publish approved drafts directly from Hyde.
           </p>
           <a
             href="/api/x/connect"
-            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-zinc-300 bg-zinc-900 px-3 text-sm font-medium text-white transition hover:bg-zinc-700"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-zinc-300 bg-zinc-900 px-3 text-sm font-medium text-white transition hover:bg-zinc-700"
           >
             Connect X
           </a>
-        </>
+        </div>
       )}
     </div>
   );
@@ -203,7 +182,7 @@ export function UserSettingsPanel({
   creatorAddress: string | null;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <XConnectionSection connected={xConnected} handle={xHandle} />
       <CreatorAddressForm current={creatorAddress} />
     </div>
