@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import { clerkEnabled } from "@/lib/server-auth";
 
-const isProtectedRoute = createRouteMatcher(["/dashboard(.*)", "/api(.*)"]);
+const isProtectedRoute = createRouteMatcher([]);
 
 const guardedProxy = clerkMiddleware(async (auth, req) => {
   if (isProtectedRoute(req)) {

@@ -3,14 +3,14 @@ import { requireOperator } from "@/lib/server-auth";
 import { syncLaunchPacket } from "@/lib/services/events";
 
 type RouteContext = {
-  params: Promise<{ packetId: string }>;
+  params: Promise<{ id: string }>;
 };
 
 export async function POST(_request: Request, context: RouteContext) {
   try {
-    const { packetId } = await context.params;
+    const { id } = await context.params;
     const actor = await requireOperator();
-    const packet = await syncLaunchPacket(packetId, actor);
+    const packet = await syncLaunchPacket(id, actor);
 
     return ok({ packet });
   } catch (error) {

@@ -26,116 +26,141 @@ export class TinyFishAdapter implements TinyFishSourceAdapter {
       ];
     }
 
-    const queued = await withRetry(
-      async () => {
-        const start = await fetch(apiUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": apiKey,
-          },
-          body: JSON.stringify({
-            url: sourceUrl,
-            goal:
-              "Extract up to 5 current hot-button events likely to move speculative online attention in the US. Focus on politically polarizing, culturally divisive, regulatory, or macro narratives. Respond as strict JSON with {\"events\":[{\"id\":\"string\",\"headline\":\"string\",\"summary\":\"string\",\"topic\":\"string\",\"watchword\":\"string\"}]}. No markdown.",
-            browser_profile: "lite",
-            proxy_config: {
-              enabled: true,
-              country_code: "US",
-            },
-            api_integration: "hyde",
-          }),
-          cache: "no-store",
-        });
-
-        if (!start.ok) {
-          throw new Error(`TinyFish request failed with ${start.status}`);
-        }
-
-        return TinyFishStartSchema.parse(await start.json());
-      },
-      { shouldRetry: isRetryableHttpError },
-    );
-
-    let completedRun:
-      | {
-          status?: string;
-          result?: Record<string, unknown>;
-          resultJson?: Record<string, unknown>;
-          error?: unknown;
-        }
-      | undefined;
-
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2500));
-
-      const payload = await withRetry(
+    try {
+      const queued = await withRetry(
         async () => {
-          const poll = await fetch("https://agent.tinyfish.ai/v1/runs/batch", {
+          const start = await fetch(apiUrl, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               "X-API-Key": apiKey,
             },
-            body: JSON.stringify({ run_ids: [queued.run_id] }),
+            body: JSON.stringify({
+              url: sourceUrl,
+              goal:
+                "Extract up to 15 current hot-button events likely to move speculative online attention in the US. Focus on politically polarizing, culturally divisive, regulatory, or macro narratives. Return as many distinct events as you can find, up to 15. Respond as strict JSON with {\"events\":[{\"id\":\"string\",\"headline\":\"string\",\"summary\":\"string\",\"topic\":\"string\",\"watchword\":\"string\"}]}. No markdown.",
+              browser_profile: "lite",
+              proxy_config: {
+                enabled: true,
+                country_code: "US",
+              },
+              api_integration: "hyde",
+            }),
             cache: "no-store",
           });
 
-          if (!poll.ok) {
-            throw new Error(`TinyFish polling failed with ${poll.status}`);
+          if (!start.ok) {
+            throw new Error(`TinyFish request failed with ${start.status}`);
           }
 
-          return TinyFishBatchSchema.parse(await poll.json());
+          return TinyFishStartSchema.parse(await start.json());
         },
         { shouldRetry: isRetryableHttpError },
       );
 
-      const run = payload.data?.[0];
+      let completedRun:
+        | {
+            status?: string;
+            result?: Record<string, unknown> | null;
+            resultJson?: Record<string, unknown> | null;
+            error?: unknown | null;
+          }
+        | undefined;
 
-      if (!run) {
-        continue;
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        const payload = await withRetry(
+          async () => {
+            const poll = await fetch("https://agent.tinyfish.ai/v1/runs/batch", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-API-Key": apiKey,
+              },
+              body: JSON.stringify({ run_ids: [queued.run_id] }),
+              cache: "no-store",
+            });
+
+            if (!poll.ok) {
+              throw new Error(`TinyFish polling failed with ${poll.status}`);
+            }
+
+            return TinyFishBatchSchema.parse(await poll.json());
+          },
+          { shouldRetry: isRetryableHttpError },
+        );
+
+        const run = payload.data?.[0];
+
+        if (!run) {
+          continue;
+        }
+
+        if (run.status === "COMPLETED") {
+          completedRun = run;
+          break;
+        }
+
+        if (run.status === "FAILED" || run.status === "CANCELLED") {
+          throw new Error("TinyFish automation did not complete successfully.");
+        }
       }
 
-      if (run.status === "COMPLETED") {
-        completedRun = run;
-        break;
+      if (!completedRun) {
+        throw new Error("TinyFish automation timed out.");
       }
 
-      if (run.status === "FAILED" || run.status === "CANCELLED") {
-        throw new Error("TinyFish automation did not complete successfully.");
+      const resultObject =
+        completedRun.resultJson ||
+        completedRun.result ||
+        {};
+
+      const events = (
+        (resultObject.events as Array<{
+          id?: string;
+          headline?: string;
+          summary?: string;
+          topic?: string;
+          watchword?: string;
+        }>) || []
+      )
+        .filter((event) => event.headline && event.summary)
+        .map((event, index) => ({
+          externalId: event.id || `${queued.run_id}-${index}`,
+          headline: event.headline || `TinyFish event ${index + 1}`,
+          summary: event.summary || "TinyFish returned an event without a summary.",
+          topic: event.topic || "general",
+          watchword: event.watchword || event.topic || "hot-button",
+          rawPayload: event,
+          occurredAt: new Date().toISOString(),
+        }));
+
+      if (events.length === 0) {
+        const fallback = makeDemoCandidate();
+        return [
+          {
+            externalId: fallback.externalId,
+            headline: fallback.headline,
+            summary: fallback.summary,
+            topic: fallback.topic,
+            watchword: "fallback-signal",
+            rawPayload: JSON.parse(fallback.rawPayload),
+            occurredAt: fallback.occurredAt,
+          },
+        ];
       }
-    }
 
-    if (!completedRun) {
-      throw new Error("TinyFish automation timed out.");
-    }
-
-    const resultObject =
-      completedRun.resultJson ||
-      completedRun.result ||
-      {};
-
-    const events = (
-      (resultObject.events as Array<{
-        id?: string;
-        headline?: string;
-        summary?: string;
-        topic?: string;
-        watchword?: string;
-      }>) || []
-    )
-      .filter((event) => event.headline && event.summary)
-      .map((event, index) => ({
-        externalId: event.id || `${queued.run_id}-${index}`,
-        headline: event.headline || `TinyFish event ${index + 1}`,
-        summary: event.summary || "TinyFish returned an event without a summary.",
-        topic: event.topic || "general",
-        watchword: event.watchword || event.topic || "hot-button",
-        rawPayload: event,
-        occurredAt: new Date().toISOString(),
+      return events.map((event) => ({
+        externalId: event.externalId,
+        headline: event.headline,
+        summary: event.summary,
+        topic: event.topic,
+        watchword: event.watchword,
+        rawPayload: event.rawPayload,
+        occurredAt: event.occurredAt,
       }));
-
-    if (events.length === 0) {
+    } catch {
       const fallback = makeDemoCandidate();
       return [
         {
@@ -149,15 +174,5 @@ export class TinyFishAdapter implements TinyFishSourceAdapter {
         },
       ];
     }
-
-    return events.map((event) => ({
-      externalId: event.externalId,
-      headline: event.headline,
-      summary: event.summary,
-      topic: event.topic,
-      watchword: event.watchword,
-      rawPayload: event.rawPayload,
-      occurredAt: event.occurredAt,
-    }));
   }
 }

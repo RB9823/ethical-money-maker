@@ -59,8 +59,16 @@ async function callOpenAI(prompt: string) {
         throw new Error(`OpenAI request failed with ${response.status}`);
       }
 
-      const payload = (await response.json()) as { output_text?: string };
-      return payload.output_text ?? "";
+      const payload = (await response.json()) as {
+        output_text?: string;
+        output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+      };
+      // Responses API: try top-level shortcut first, then nested output[0].content[0].text
+      return (
+        payload.output_text ??
+        payload.output?.[0]?.content?.find((c) => c.type === "output_text")?.text ??
+        ""
+      );
     },
     { shouldRetry: isRetryableHttpError },
   );

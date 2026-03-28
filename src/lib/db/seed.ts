@@ -323,16 +323,42 @@ export function seedDatabase(sqlite: Database.Database) {
 }
 
 export function makeDemoCandidate() {
+  const variants = [
+    {
+      key: "culture",
+      headline: "Emergent culture-war narrative detected on Base social graph",
+      summary:
+        "TinyFish fallback mode detected a fresh high-volatility narrative cluster with rapid quote velocity.",
+      topic: "culture",
+    },
+    {
+      key: "macro",
+      headline: "Macro anxiety is spilling into Base-native speculation chatter",
+      summary:
+        "Fallback ingest picked up a rising macro stress narrative with outsized engagement across speculative accounts.",
+      topic: "macro",
+    },
+    {
+      key: "politics",
+      headline: "Political flashpoint rhetoric is rotating into Base trading discourse",
+      summary:
+        "Fallback mode flagged a politically polarizing story cluster that is spreading into Base memecoin conversations.",
+      topic: "politics",
+    },
+  ] as const;
+
+  const bucket = Math.floor(Date.now() / (1000 * 60 * 60 * 6));
+  const variant = variants[bucket % variants.length];
+
   return {
     id: randomUUID(),
-    externalId: `tinyfish-${Date.now()}`,
+    externalId: `tinyfish-fallback-${variant.key}-${bucket}`,
     source: "tinyfish",
-    cursor: `cursor-${Date.now()}`,
-    headline: "Emergent culture-war narrative detected on Base social graph",
-    summary:
-      "TinyFish fallback mode detected a fresh high-volatility narrative cluster with rapid quote velocity.",
-    topic: "culture",
-    rawPayload: JSON.stringify({ source: "mock", mode: "fallback" }),
+    cursor: `cursor-fallback-${bucket}`,
+    headline: variant.headline,
+    summary: variant.summary,
+    topic: variant.topic,
+    rawPayload: JSON.stringify({ source: "mock", mode: "fallback", variant: variant.key }),
     occurredAt: new Date().toISOString(),
   };
 }

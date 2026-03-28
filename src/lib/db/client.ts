@@ -13,8 +13,17 @@ const globalForDb = globalThis as typeof globalThis & {
 
 function resolveDatabasePath() {
   const configured = process.env.DATABASE_URL?.trim();
+  const dataDir = process.env.HYDE_DATA_DIR?.trim();
 
   if (!configured) {
+    if (dataDir) {
+      return path.join(dataDir, "hyde.db");
+    }
+
+    if (process.env.RAILWAY_ENVIRONMENT && fs.existsSync("/data")) {
+      return "/data/hyde.db";
+    }
+
     return path.join(process.cwd(), "data", "hyde.db");
   }
 

@@ -8,9 +8,9 @@ export const TinyFishStartSchema = z.object({
 
 export const TinyFishRunSchema = z.object({
   status: z.string().optional(),
-  resultJson: z.record(z.string(), z.unknown()).optional(),
-  result: z.record(z.string(), z.unknown()).optional(),
-  error: z.unknown().optional(),
+  resultJson: z.record(z.string(), z.unknown()).nullish(),
+  result: z.record(z.string(), z.unknown()).nullish(),
+  error: z.unknown().nullish(),
 });
 
 export const TinyFishBatchSchema = z.object({

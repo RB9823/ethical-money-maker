@@ -160,3 +160,11 @@ export const executionLogs = sqliteTable("execution_logs", {
     .default(sql`CURRENT_TIMESTAMP`)
     .notNull(),
 });
+
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: text("updated_at")
+    .default(sql`CURRENT_TIMESTAMP`)
+    .notNull(),
+});

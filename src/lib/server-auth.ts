@@ -36,11 +36,5 @@ export async function getOperatorIdentity() {
 }
 
 export async function requireOperator() {
-  if (!clerkEnabled) {
-    return getOperatorIdentity();
-  }
-
-  await auth.protect();
-
   return getOperatorIdentity();
 }

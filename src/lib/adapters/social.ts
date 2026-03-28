@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import type { SocialPostAdapter } from "@/lib/adapters/contracts";
 import { isRetryableHttpError, withRetry } from "@/lib/adapters/retry";
+import { getXConnection } from "@/lib/services/settings";
 import { buildPostDraft } from "@/lib/workflow";
 
 function percentEncode(str: string): string {
@@ -74,10 +75,14 @@ export class XSocialAdapter implements SocialPostAdapter {
   async publishPost(content: string, hashtags: string[]): Promise<PublishResult | null> {
     const apiKey = process.env.X_API_KEY;
     const apiSecret = process.env.X_API_SECRET;
-    const accessToken = process.env.X_ACCESS_TOKEN;
-    const accessTokenSecret = process.env.X_ACCESS_TOKEN_SECRET;
+    const xConnection = getXConnection();
+    const accessToken = xConnection.accessToken;
+    const accessTokenSecret = xConnection.accessTokenSecret;
+    const oauth2AccessToken = xConnection.oauth2AccessToken;
+    const hasOAuth1 = Boolean(apiKey && apiSecret && accessToken && accessTokenSecret);
+    const authMode = oauth2AccessToken ? "oauth2" : hasOAuth1 ? "oauth1" : null;
 
-    if (!apiKey || !apiSecret || !accessToken || !accessTokenSecret) {
+    if (!authMode) {
       return null;
     }
 
@@ -89,25 +94,30 @@ export class XSocialAdapter implements SocialPostAdapter {
     const bodyObj = { text };
     const bodyJson = JSON.stringify(bodyObj);
 
-    const oauthHeader = buildOAuthHeader("POST", url, {}, {
-      apiKey,
-      apiSecret,
-      accessToken,
-      accessTokenSecret,
-    });
-
     const response = await withRetry(
       async () => {
+        const authorizationHeader = authMode === "oauth2"
+          ? `Bearer ${oauth2AccessToken}`
+          : buildOAuthHeader("POST", url, {}, {
+              apiKey: apiKey!,
+              apiSecret: apiSecret!,
+              accessToken: accessToken!,
+              accessTokenSecret: accessTokenSecret!,
+            });
         const r = await fetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: oauthHeader,
+            Authorization: authorizationHeader,
           },
           body: bodyJson,
           cache: "no-store",
         });
-        if (!r.ok) throw new Error(`X API publish failed (${r.status})`);
+        if (!r.ok) {
+          const errorBody = await r.text().catch(() => "");
+          const detail = errorBody ? `: ${errorBody}` : "";
+          throw new Error(`X API publish failed via ${authMode} (${r.status})${detail}`);
+        }
         return r;
       },
       { shouldRetry: isRetryableHttpError },
@@ -120,7 +130,7 @@ export class XSocialAdapter implements SocialPostAdapter {
     const tweetId = payload.data?.id;
     if (!tweetId) return null;
 
-    const handle = process.env.X_HANDLE ?? "i";
+    const handle = xConnection.handle ?? "i";
     return {
       tweetId,
       url: `https://x.com/${handle}/status/${tweetId}`,

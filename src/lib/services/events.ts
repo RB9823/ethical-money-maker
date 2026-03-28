@@ -6,7 +6,6 @@ import { FlaunchLaunchAdapter } from "@/lib/adapters/launch";
 import { generateDraftPackage, generateLaunchImage } from "@/lib/adapters/openai";
 import { XSocialAdapter } from "@/lib/adapters/social";
 import { TinyFishAdapter } from "@/lib/adapters/tinyfish";
-import { pullXSignals } from "@/lib/adapters/x-listener";
 import { db } from "@/lib/db/client";
 import {
   approvals,
@@ -34,10 +33,6 @@ function getLaunchNetwork() {
 
 function getCreatorAddress() {
   return process.env.FLAUNCH_CREATOR_ADDRESS?.trim() || undefined;
-}
-
-function toBase64Payload(dataUrl: string) {
-  return dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
 }
 
 function mapFlaunchStatus(input: string | null | undefined) {
@@ -128,6 +123,10 @@ export function getDashboardSnapshot(selectedEventId?: string) {
     null;
 
   const eventId = selectedEvent?.id;
+  const selectedCandidate =
+    selectedEvent?.candidateId
+      ? db.select().from(eventCandidates).where(eq(eventCandidates.id, selectedEvent.candidateId)).get() ?? null
+      : null;
 
   const signals = eventId
     ? db.select().from(eventSignals).where(eq(eventSignals.eventId, eventId)).all()
@@ -151,6 +150,22 @@ export function getDashboardSnapshot(selectedEventId?: string) {
         .orderBy(desc(postDrafts.createdAt))
         .all()
     : [];
+
+  const pendingDrafts = db
+    .select({
+      id: postDrafts.id,
+      eventId: postDrafts.eventId,
+      eventTitle: trackedEvents.title,
+      content: postDrafts.content,
+      hashtags: postDrafts.hashtags,
+      platform: postDrafts.platform,
+      createdAt: postDrafts.createdAt,
+    })
+    .from(postDrafts)
+    .leftJoin(trackedEvents, eq(postDrafts.eventId, trackedEvents.id))
+    .where(eq(postDrafts.status, "draft"))
+    .orderBy(desc(postDrafts.createdAt))
+    .all();
 
   const audit = db
     .select()
@@ -183,6 +198,12 @@ export function getDashboardSnapshot(selectedEventId?: string) {
     stats,
     events,
     selectedEvent,
+    selectedCandidate: selectedCandidate
+      ? {
+          ...selectedCandidate,
+          rawPayload: parseJson<Record<string, unknown>>(selectedCandidate.rawPayload, {}),
+        }
+      : null,
     selectedSignals: signals,
     selectedRuns: runs.map((run) => ({
       ...run,
@@ -192,7 +213,11 @@ export function getDashboardSnapshot(selectedEventId?: string) {
       ...packet,
       payload: parseJson<Record<string, unknown>>(packet.payloadJson, {}),
     })),
-    selectedDrafts,
+    selectedDrafts: selectedDrafts.map((draft) => ({
+      ...draft,
+      provider: parseJson<Record<string, unknown>>(draft.providerResponse, {}),
+    })),
+    pendingDrafts,
     audit,
   };
 }
@@ -391,10 +416,10 @@ export async function prepareLaunchPacket(eventId: string, actor: OperatorIdenti
     description,
     chain: event.chain,
     watchword: event.watchword,
-    network,
-    creatorAddress,
-    sniperProtection: true,
-    imagePrompt,
+      network,
+      creatorAddress,
+      sniperProtection: false,
+      imagePrompt,
   });
 
   const packetId = randomUUID();
@@ -468,6 +493,10 @@ export async function submitLaunchPacket(packetId: string, actor: OperatorIdenti
     throw new Error("Launch packet has no generated image.");
   }
 
+  if (packet.imageDataUrl.startsWith("data:image/svg+xml")) {
+    throw new Error("Launch packet only has SVG fallback art. Prepare a fresh packet to generate PNG launch art before submitting to Flaunch.");
+  }
+
   db.update(launchPackets)
     .set({
       status: "submitting",
@@ -478,52 +507,73 @@ export async function submitLaunchPacket(packetId: string, actor: OperatorIdenti
     .where(eq(launchPackets.id, packetId))
     .run();
 
-  const imageUpload = await launch.uploadImage(toBase64Payload(packet.imageDataUrl));
+  try {
+    const imageUpload = await launch.uploadImage(packet.imageDataUrl);
 
-  const submission = await launch.submitLaunch({
-    tokenName: packet.tokenName,
-    tokenSymbol: packet.tokenSymbol,
-    thesis: packet.thesis,
-    description: packet.description,
-    chain: packet.chain,
-    watchword: packet.imagePrompt || packet.tokenSymbol,
-    network: (packet.network as "base" | "base-sepolia") || getLaunchNetwork(),
-    creatorAddress: packet.creatorAddress || getCreatorAddress(),
-    sniperProtection: true,
-    imageIpfs: imageUpload.ipfsHash,
-    imagePrompt: packet.imagePrompt || undefined,
-  });
-
-  db.update(launchPackets)
-    .set({
-      status: mapFlaunchStatus(submission.message),
-      providerStatus: submission.message,
-      jobId: submission.jobId,
-      tokenUri: imageUpload.tokenURI,
+    const submission = await launch.submitLaunch({
+      tokenName: packet.tokenName,
+      tokenSymbol: packet.tokenSymbol,
+      thesis: packet.thesis,
+      description: packet.description,
+      chain: packet.chain,
+      watchword: packet.imagePrompt || packet.tokenSymbol,
+      network: (packet.network as "base" | "base-sepolia") || getLaunchNetwork(),
+      creatorAddress: packet.creatorAddress || getCreatorAddress(),
+      sniperProtection: false,
       imageIpfs: imageUpload.ipfsHash,
-      lastPolledAt: nowIso(),
-      payloadJson: JSON.stringify({
-        ...parseJson<Record<string, unknown>>(packet.payloadJson, {}),
-        imageUpload,
-        submission,
-      }),
-    })
-    .where(eq(launchPackets.id, packetId))
-    .run();
+      imagePrompt: packet.imagePrompt || undefined,
+    });
 
-  recordApproval({
-    entityType: "launch_packet",
-    entityId: packetId,
-    action: "submit-launch",
-    outcome: "approved",
-    actor,
-    note: `Submitted launch packet to Flaunch. jobId=${submission.jobId}`,
-  });
+    db.update(launchPackets)
+      .set({
+        status: mapFlaunchStatus(submission.message),
+        providerStatus: submission.message,
+        jobId: submission.jobId,
+        tokenUri: imageUpload.tokenURI,
+        imageIpfs: imageUpload.ipfsHash,
+        lastPolledAt: nowIso(),
+        payloadJson: JSON.stringify({
+          ...parseJson<Record<string, unknown>>(packet.payloadJson, {}),
+          imageUpload,
+          submission,
+        }),
+      })
+      .where(eq(launchPackets.id, packetId))
+      .run();
 
-  logExecution("launch", "success", "Submitted Hyde launch packet to Flaunch.", {
-    packetId,
-    jobId: submission.jobId,
-  });
+    recordApproval({
+      entityType: "launch_packet",
+      entityId: packetId,
+      action: "submit-launch",
+      outcome: "approved",
+      actor,
+      note: `Submitted launch packet to Flaunch. jobId=${submission.jobId}`,
+    });
+
+    logExecution("launch", "success", "Submitted Hyde launch packet to Flaunch.", {
+      packetId,
+      jobId: submission.jobId,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Flaunch submission failed.";
+
+    db.update(launchPackets)
+      .set({
+        status: "failed",
+        providerStatus: "failed",
+        errorMessage: message,
+        lastPolledAt: nowIso(),
+      })
+      .where(eq(launchPackets.id, packetId))
+      .run();
+
+    logExecution("launch", "failed", "Failed to submit Hyde launch packet to Flaunch.", {
+      packetId,
+      error: message,
+    });
+
+    throw error;
+  }
 
   return db.select().from(launchPackets).where(eq(launchPackets.id, packetId)).get();
 }
@@ -655,12 +705,25 @@ export async function approvePostDraft(postId: string, actor: OperatorIdentity) 
   const hashtags = draft.hashtags ? draft.hashtags.split(" ") : [];
   let publishedStatus: "approved" | "published" | "failed" = "approved";
   let providerResponse: Record<string, unknown> = { mode: "approved" };
+  let approvalOutcome: "approved" | "rejected" = "approved";
+  let approvalNote = "Draft approved for downstream posting.";
 
-  const publishResult = await social.publishPost(draft.content, hashtags).catch(() => null);
+  try {
+    const publishResult = await social.publishPost(draft.content, hashtags);
 
-  if (publishResult) {
-    publishedStatus = "published";
-    providerResponse = { mode: "published", tweetId: publishResult.tweetId, url: publishResult.url };
+    if (publishResult) {
+      publishedStatus = "published";
+      providerResponse = { mode: "published", tweetId: publishResult.tweetId, url: publishResult.url };
+      approvalNote = `Draft published to X. tweetId=${publishResult.tweetId}`;
+    }
+  } catch (error) {
+    publishedStatus = "failed";
+    approvalOutcome = "rejected";
+    approvalNote = error instanceof Error ? error.message : "X publish failed.";
+    providerResponse = {
+      mode: "failed",
+      error: approvalNote,
+    };
   }
 
   db.update(postDrafts)
@@ -677,10 +740,29 @@ export async function approvePostDraft(postId: string, actor: OperatorIdentity) 
     entityType: "post_draft",
     entityId: postId,
     action: "approve-post",
-    outcome: "approved",
+    outcome: approvalOutcome,
     actor,
-    note: "Draft approved for downstream posting.",
+    note: approvalNote,
   });
+
+  return db.select().from(postDrafts).where(eq(postDrafts.id, postId)).get();
+}
+
+export function updatePostDraft(postId: string, content: string, hashtags: string) {
+  const draft = db.select().from(postDrafts).where(eq(postDrafts.id, postId)).get();
+
+  if (!draft) {
+    throw new Error("Draft not found.");
+  }
+
+  if (draft.status !== "draft") {
+    throw new Error("Only drafts can be edited.");
+  }
+
+  db.update(postDrafts)
+    .set({ content: content.trim(), hashtags: hashtags.trim() })
+    .where(eq(postDrafts.id, postId))
+    .run();
 
   return db.select().from(postDrafts).where(eq(postDrafts.id, postId)).get();
 }
@@ -762,40 +844,6 @@ export async function runHotButtonSweep(actor: OperatorIdentity) {
       .run();
 
     inserted.push(eventId);
-  }
-
-  // Enrich all active events (new + watch) with X/Twitter engagement signals.
-  const activeWatchwords = db
-    .select({ id: trackedEvents.id, watchword: trackedEvents.watchword })
-    .from(trackedEvents)
-    .all()
-    .filter((e) => e.watchword)
-    .map((e) => ({ id: e.id, watchword: e.watchword.replace(/-/g, " ") }));
-
-  if (activeWatchwords.length > 0) {
-    const xSignals = await pullXSignals(activeWatchwords.map((e) => e.watchword));
-
-    for (const signal of xSignals) {
-      const event = activeWatchwords.find(
-        (e) => e.watchword.toLowerCase() === signal.watchword.toLowerCase(),
-      );
-      if (!event) continue;
-
-      db.insert(eventSignals)
-        .values({
-          id: randomUUID(),
-          eventId: event.id,
-          kind: "social",
-          source: "X",
-          label: "X engagement velocity",
-          value: String(signal.engagementVelocity),
-          direction: signal.engagementVelocity > 5 ? "up" : "flat",
-          confidence: Math.min(90, Math.round(signal.engagementVelocity * 3 + 40)),
-          note: `${signal.tweetCount} tweets sampled, top engagement: ${signal.topEngagement}`,
-          createdAt: nowIso(),
-        })
-        .run();
-    }
   }
 
   logExecution("tinyfish", "success", "Completed a hot-button sweep.", {

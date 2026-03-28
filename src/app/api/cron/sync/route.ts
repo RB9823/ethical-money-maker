@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { failure, ok } from "@/lib/http";
 import { db } from "@/lib/db/client";
 import { launchPackets } from "@/lib/db/schema";
