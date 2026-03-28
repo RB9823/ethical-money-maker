@@ -21,9 +21,11 @@ export async function GET(request: Request) {
   const cookieStore = await cookies();
   const requestToken = cookieStore.get("x_oauth_request_token")?.value;
   const requestSecret = cookieStore.get("x_oauth_request_secret")?.value;
+  const actorId = cookieStore.get("x_oauth_actor_id")?.value;
 
   cookieStore.delete("x_oauth_request_token");
   cookieStore.delete("x_oauth_request_secret");
+  cookieStore.delete("x_oauth_actor_id");
 
   if (!requestToken || !requestSecret || requestToken !== oauthToken) {
     return NextResponse.redirect(new URL("/dashboard?x_error=Invalid or expired X auth session", url.origin));
@@ -36,13 +38,15 @@ export async function GET(request: Request) {
       oauthVerifier,
     });
 
-    setSetting("x_access_token", access.accessToken);
-    setSetting("x_access_token_secret", access.accessTokenSecret);
+    // Store tokens scoped to this actor so multiple users can each have
+    // their own X account connected.
+    setSetting("x_access_token", access.accessToken, actorId);
+    setSetting("x_access_token_secret", access.accessTokenSecret, actorId);
     if (access.screenName) {
-      setSetting("x_handle", access.screenName);
+      setSetting("x_handle", access.screenName, actorId);
     }
     if (access.userId) {
-      setSetting("x_user_id", access.userId);
+      setSetting("x_user_id", access.userId, actorId);
     }
 
     return NextResponse.redirect(new URL("/dashboard?x_connected=1", url.origin));

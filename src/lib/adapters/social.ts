@@ -72,10 +72,10 @@ export class XSocialAdapter implements SocialPostAdapter {
     };
   }
 
-  async publishPost(content: string, hashtags: string[]): Promise<PublishResult | null> {
+  async publishPost(content: string, hashtags: string[], actorId?: string): Promise<PublishResult | null> {
     const apiKey = process.env.X_API_KEY;
     const apiSecret = process.env.X_API_SECRET;
-    const xConnection = getXConnection();
+    const xConnection = getXConnection(actorId);
     const accessToken = xConnection.accessToken;
     const accessTokenSecret = xConnection.accessTokenSecret;
     const oauth2AccessToken = xConnection.oauth2AccessToken;

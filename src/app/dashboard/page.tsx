@@ -1,6 +1,6 @@
 import { DashboardLiveLoop } from "@/components/dashboard-live-loop";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { clerkEnabled } from "@/lib/server-auth";
+import { clerkEnabled, getOperatorIdentity } from "@/lib/server-auth";
 import { getDashboardSnapshot } from "@/lib/services/events";
 
 type DashboardPageProps = {
@@ -8,8 +8,8 @@ type DashboardPageProps = {
 };
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  const params = await searchParams;
-  const snapshot = getDashboardSnapshot(params.event);
+  const [params, actor] = await Promise.all([searchParams, getOperatorIdentity()]);
+  const snapshot = getDashboardSnapshot(params.event, actor.actorId);
 
   return (
     <>

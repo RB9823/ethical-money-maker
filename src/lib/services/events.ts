@@ -21,6 +21,7 @@ import {
 import type { OperatorIdentity, WorkflowTransitionInput } from "@/lib/types";
 import { scoreEventConfidence, canTransitionEvent, buildLaunchPacketDraft } from "@/lib/workflow";
 import { evaluateLaunchTiming } from "@/lib/services/timing";
+import { getCreatorAddress, getXConnection } from "@/lib/services/settings";
 
 const tinyFish = new TinyFishAdapter();
 const dune = new DuneAdapter();
@@ -29,10 +30,6 @@ const social = new XSocialAdapter();
 
 function getLaunchNetwork() {
   return process.env.FLAUNCH_NETWORK === "base" ? "base" : "base-sepolia";
-}
-
-function getCreatorAddress() {
-  return process.env.FLAUNCH_CREATOR_ADDRESS?.trim() || undefined;
 }
 
 function mapFlaunchStatus(input: string | null | undefined) {
@@ -109,7 +106,7 @@ function recordApproval(input: {
     .run();
 }
 
-export function getDashboardSnapshot(selectedEventId?: string) {
+export function getDashboardSnapshot(selectedEventId?: string, actorId?: string) {
   const events = db
     .select()
     .from(trackedEvents)
@@ -219,6 +216,8 @@ export function getDashboardSnapshot(selectedEventId?: string) {
     })),
     pendingDrafts,
     audit,
+    xConnection: getXConnection(actorId),
+    creatorAddress: getCreatorAddress(actorId),
   };
 }
 
@@ -407,7 +406,7 @@ export async function prepareLaunchPacket(eventId: string, actor: OperatorIdenti
     tokenSymbol,
   });
   const network = getLaunchNetwork();
-  const creatorAddress = getCreatorAddress();
+  const creatorAddress = getCreatorAddress(actor.actorId) ?? undefined;
 
   const providerPayload = await launch.prepareLaunch({
     tokenName,
@@ -520,7 +519,7 @@ export async function submitLaunchPacket(packetId: string, actor: OperatorIdenti
       chain: packet.chain,
       watchword: packet.imagePrompt || packet.tokenSymbol,
       network: (packet.network as "base" | "base-sepolia") || getLaunchNetwork(),
-      creatorAddress: packet.creatorAddress || getCreatorAddress(),
+      creatorAddress: packet.creatorAddress || getCreatorAddress(actor.actorId) || undefined,
       sniperProtection: false,
       imageIpfs: imageUpload.ipfsHash,
       imagePrompt: packet.imagePrompt || undefined,
@@ -711,7 +710,7 @@ export async function approvePostDraft(postId: string, actor: OperatorIdentity) 
   let approvalNote = "Draft approved for downstream posting.";
 
   try {
-    const publishResult = await social.publishPost(draft.content, hashtags);
+    const publishResult = await social.publishPost(draft.content, hashtags, actor.actorId);
 
     if (publishResult) {
       publishedStatus = "published";

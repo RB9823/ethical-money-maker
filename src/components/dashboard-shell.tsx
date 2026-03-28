@@ -19,9 +19,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { UserSettingsPanel } from "@/components/user-settings-panel";
 import { formatCompactNumber, formatRelativeWindow } from "@/lib/format";
 import { clerkEnabled } from "@/lib/server-auth";
-import { getXConnection } from "@/lib/services/settings";
 
 const surfaceClass =
   "border-white/70 bg-white/86 shadow-[0_18px_44px_-34px_rgba(15,23,42,0.28)] backdrop-blur-xl";
@@ -115,11 +115,12 @@ export function DashboardShell({
     selectedDrafts,
     pendingDrafts,
     audit,
+    xConnection,
+    creatorAddress,
   } = snapshot;
 
   const latestDraft = selectedDrafts[0];
   const latestPacket = selectedPackets[0];
-  const xConnection = getXConnection();
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(12,102,116,0.18),_transparent_18%),radial-gradient(circle_at_top_right,_rgba(202,113,53,0.18),_transparent_18%),linear-gradient(180deg,_#fbfaf6,_#f1ece2)]">
@@ -153,14 +154,12 @@ export function DashboardShell({
                     <Badge className={process.env.DUNE_API_KEY ? "bg-emerald-600 text-white" : "bg-white/14 text-white"}>Dune</Badge>
                     <Badge className="bg-white/14 text-white">Flaunch</Badge>
                     <Badge className={xConnection.connected ? "bg-emerald-600 text-white" : "bg-white/14 text-white"}>
-                      X {xConnection.connected ? "ready" : "needs auth"}
+                      X {xConnection.connected ? (xConnection.handle ? `@${xConnection.handle}` : "ready") : "needs auth"}
+                    </Badge>
+                    <Badge className={creatorAddress ? "bg-emerald-600 text-white" : "bg-white/14 text-white"}>
+                      Wallet {creatorAddress ? "set" : "not set"}
                     </Badge>
                   </div>
-                  {!xConnection.connected ? (
-                    <Link href="/api/x/connect" className="inline-flex h-8 items-center justify-center rounded-full border border-white/20 bg-white/10 px-3 text-sm font-medium text-white transition hover:bg-white/16">
-                      Connect X
-                    </Link>
-                  ) : null}
                 </div>
               </div>
             </CardContent>
@@ -317,7 +316,7 @@ export function DashboardShell({
                 <Card className={surfaceClass}>
                   <CardContent className="p-6">
                     <Tabs defaultValue="overview" className="space-y-4">
-                      <TabsList className="grid w-full grid-cols-2 gap-1 rounded-[18px] bg-zinc-100/90 p-1 md:grid-cols-4">
+                      <TabsList className="grid w-full grid-cols-2 gap-1 rounded-[18px] bg-zinc-100/90 p-1 md:grid-cols-5">
                         <TabsTrigger value="overview" className="rounded-[18px]">Overview</TabsTrigger>
                         <TabsTrigger value="dune" className="rounded-[18px]">Dune</TabsTrigger>
                         <TabsTrigger value="outbound" className="rounded-[18px]">
@@ -329,6 +328,12 @@ export function DashboardShell({
                           )}
                         </TabsTrigger>
                         <TabsTrigger value="audit" className="rounded-[18px]">Audit</TabsTrigger>
+                        <TabsTrigger value="settings" className="rounded-[18px]">
+                          Settings
+                          {!xConnection.connected || !creatorAddress ? (
+                            <span className="ml-1.5 inline-flex size-2 rounded-full bg-amber-500" />
+                          ) : null}
+                        </TabsTrigger>
                       </TabsList>
 
                       <TabsContent value="overview" className="space-y-3">
@@ -680,6 +685,25 @@ export function DashboardShell({
                             </div>
                           ))
                         )}
+                      </TabsContent>
+
+                      <TabsContent value="settings" className="space-y-3">
+                        <Card className="border-zinc-200/80 shadow-none">
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-base">Your Account Settings</CardTitle>
+                            <CardDescription>
+                              Each operator connects their own X account and Base wallet. Hyde uses
+                              your credentials only for actions you explicitly approve.
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <UserSettingsPanel
+                              xConnected={xConnection.connected}
+                              xHandle={xConnection.handle}
+                              creatorAddress={creatorAddress}
+                            />
+                          </CardContent>
+                        </Card>
                       </TabsContent>
                     </Tabs>
                   </CardContent>
